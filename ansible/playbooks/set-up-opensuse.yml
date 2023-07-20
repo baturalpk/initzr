@@ -1,0 +1,14 @@
+- name: Configure a fresh openSUSE installation
+  hosts: "*"
+  tasks:
+    - name: Install home server requirements for leader node
+      ansible.builtin.import_playbook: ./opensuse/homeserver-leader.yml
+      tags:
+        - server
+        - leader
+
+    # TODO:
+    # - name: Set up for personal use
+    #   ansible.builtin.import_playbook: ./opensuse/personal.yml
+    #   tags:
+    #     - personal

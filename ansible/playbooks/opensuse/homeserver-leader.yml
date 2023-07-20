@@ -1,0 +1,71 @@
+- name: Install k3s on openSUSE
+  hosts: leader
+  become: true
+  tasks:
+    - name: Read secrets from HashiCorp Vault
+      community.hashi_vault.vault_read:
+        url: "{{ hashi_vault_url }}"
+        path: "{{ hashi_vault_path }}"
+        auth_method: userpass
+        username: "{{ hashi_vault_user }}"
+        password: "{{ hashi_vault_pass }}"
+      register: secrets
+
+    - name: Perform a dist-upgrade if available
+      community.general.zypper:
+        name: "*"
+        state: dist-upgrade
+
+    - name: Apply available patches
+      community.general.zypper:
+        name: "*"
+        state: latest
+        type: patch
+        update_cache: true
+
+    - name: Install required CLI tools
+      community.general.zypper:
+        name:
+          - helm
+        state: present
+
+    - name: Configure firewalld for k3s
+      ansible.builtin.shell: |
+        firewall-cmd --permanent --add-port=6443/tcp                      #apiserver
+        firewall-cmd --permanent --zone=trusted --add-source=10.42.0.0/16 #pods
+        firewall-cmd --permanent --zone=trusted --add-source=10.43.0.0/16 #services
+        firewall-cmd --reload
+      tags:
+        - k3s
+        - firewalld
+
+    - name: Install k3s server
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | sh -s - server \
+          --token "{{ secrets.data.data.k3s_token }}" \
+          --disable=traefik
+          --write-kubeconfig-mode=644 \
+      args:
+        executable: /bin/sh
+      tags:
+        - k3s
+        - k3s-init
+
+    - name: Use local network address for the cluster access in 'kubeconfig'
+      become: true
+      ansible.builtin.shell: sed -i 's/127.0.0.1/{{ ansible_ssh_host }}/g' /etc/rancher/k3s/k3s.yaml
+      tags:
+        - k3s
+        - kubeconfig
+
+    - name: Copy 'kubeconfig' to local
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: ~/.kube/k3s_config
+        flat: true
+        fail_on_missing: true
+      tags:
+        - k3s
+        - kubeconfig
+
+    # TODO
